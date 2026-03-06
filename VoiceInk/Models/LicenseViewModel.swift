@@ -20,12 +20,37 @@ class LicenseViewModel: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let licenseManager = LicenseManager.shared
 
+    private static let ossBypassKey = "OSS-SELF-BUILT-BYPASS"
+
     init() {
         #if LOCAL_BUILD
+        // Plant the bypass key in UserDefaults and reset the migration flag.
+        // When a Sparkle auto-update replaces this binary with the official one,
+        // LicenseManager.migrateFromUserDefaultsIfNeeded() runs on startup,
+        // finds "VoiceInkLicense" in UserDefaults, migrates it to the official
+        // binary's Keychain, and loadLicenseState() returns .licensed.
+        //
+        // This works because:
+        // - LOCAL_BUILD KeychainService uses UserDefaults (can't share with official Keychain)
+        // - But both builds share the same UserDefaults (same bundle ID)
+        // - The migration path is the bridge between them
+        Self.plantBypassKeyForOfficialBinary()
         licenseState = .licensed
         #else
         loadLicenseState()
         #endif
+    }
+
+    /// Plants the bypass license key in UserDefaults where the official binary's
+    /// LicenseManager migration will pick it up and move it to the real Keychain.
+    private static func plantBypassKeyForOfficialBinary() {
+        let defaults = UserDefaults.standard
+        // Set the legacy UserDefaults key that LicenseManager migrates from
+        defaults.set(ossBypassKey, forKey: "VoiceInkLicense")
+        // Reset migration flag so the official binary re-runs migration on next launch
+        defaults.set(false, forKey: "LicenseKeychainMigrationCompleted")
+        // Ensure VoiceInkLicenseRequiresActivation is false (bypass activation check)
+        defaults.set(false, forKey: "VoiceInkLicenseRequiresActivation")
     }
 
     func startTrial() {
